@@ -13,3 +13,8 @@ if(CMAKE_COMPILER_IS_GNUCXX)
 endif()
 
 add_executable(lal main.c)
+
+if(UNIX)
+	target_link_libraries(lal -lX11)
+endif()
+
