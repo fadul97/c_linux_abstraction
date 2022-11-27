@@ -28,7 +28,7 @@ typedef int b32;
 
 // Platform detection
 #if defined(__linux__) || defined(__gnu_linux__)
-#define LPLATFORM_LINUX
+#define LPLATFORM_LINUX 1
 #else
 #error "ERROR: Unknown platform."
 #endif

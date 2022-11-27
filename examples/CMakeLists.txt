@@ -16,5 +16,5 @@ target_include_directories(lal
     ${CMAKE_CURRENT_SOURCE_DIR}/../include) 
 
 if(UNIX)
-	target_link_libraries(lal -lX11)
+	target_link_libraries(lal lal_platform -lX11)
 endif()
