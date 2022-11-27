@@ -52,6 +52,7 @@ int main()
 	char str[25] = {0};
 	KeySym keysym = 0;
 
+	printf("Starting window loop.\n");
 	// Window loop
 	int quit = 0;
 	while(!quit)
