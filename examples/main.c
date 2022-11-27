@@ -4,8 +4,13 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
+#include "lal_defines.h"
+
 int main()
 {
+	sint32 v = 1000;
+	printf("Value for sint32 v = %d\n", v);
+
 	// Open a connection to X server
 	Display *display = XOpenDisplay(NULL);
 	if(display == NULL)

@@ -3,4 +3,5 @@ project(lal)
 
 #set(CMAKE_VERBOSE_MAKEFILE on )
 
+add_subdirectory(include)
 add_subdirectory(examples)

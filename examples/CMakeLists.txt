@@ -11,6 +11,10 @@ endif()
 
 add_executable(lal main.c)
 
+target_include_directories(lal
+    PUBLIC 
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include) 
+
 if(UNIX)
 	target_link_libraries(lal -lX11)
 endif()
