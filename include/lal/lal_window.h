@@ -6,6 +6,7 @@
 typedef struct platform_handler
 {
 	void* window;
+	b8 running;
 } platform_handler;
 
 b8 window_startup(
@@ -18,6 +19,9 @@ b8 window_startup(
 
 void window_shutdown(platform_handler *platform_handler);
 
-b8 window_run(platform_handler *platform_handler);
+void process_events(platform_handler *platform_handler);
+
+b8 is_platform_running(platform_handler *platform_handler);
+void set_platform_running(platform_handler *platform_handler, b8 value);
 
 #endif // LAL_WINDOW_H
