@@ -3,25 +3,25 @@
 
 #include "lal_defines.h"
 
-typedef struct platform_handler
+typedef struct PlatformHandler
 {
 	void* window;
 	b8 running;
-} platform_handler;
+} PlatformHandler;
 
 b8 window_startup(
-	platform_handler *platform_handler,
+	PlatformHandler *platform_handler,
 	const char* window_title,
 	uint32 x,
 	uint32 y,
 	uint32 width,
 	uint32 height);
 
-void window_shutdown(platform_handler *platform_handler);
+void window_shutdown(PlatformHandler *platform_handler);
 
-void process_events(platform_handler *platform_handler);
+void process_events(PlatformHandler *platform_handler);
 
-b8 is_platform_running(platform_handler *platform_handler);
-void set_platform_running(platform_handler *platform_handler, b8 value);
+b8 is_platform_running(PlatformHandler *platform_handler);
+void set_platform_running(PlatformHandler *platform_handler, b8 value);
 
 #endif // LAL_WINDOW_H

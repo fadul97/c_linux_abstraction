@@ -22,7 +22,7 @@ typedef struct WindowX11
 Keys translate_keycode(uint32 key);
 
 b8 window_startup(
-		platform_handler *platform_handler,
+		PlatformHandler *platform_handler,
 		const char* window_title,
 		uint32 x,
 		uint32 y,
@@ -78,7 +78,7 @@ b8 window_startup(
 	return TRUE;
 }
 
-void window_shutdown(platform_handler *platform_handler)
+void window_shutdown(PlatformHandler *platform_handler)
 {
 	WindowX11 *window = (WindowX11 *)platform_handler->window;
 	
@@ -94,7 +94,7 @@ void window_shutdown(platform_handler *platform_handler)
 	}
 }
 
-void process_events(platform_handler *platform_handler)
+void process_events(PlatformHandler *platform_handler)
 {
 	WindowX11 *window = (WindowX11 *)platform_handler->window;
 
@@ -137,12 +137,12 @@ void process_events(platform_handler *platform_handler)
 	}
 }
 
-b8 is_platform_running(platform_handler *platform_handler)
+b8 is_platform_running(PlatformHandler *platform_handler)
 {
 	return platform_handler->running;
 }
 
-void set_platform_running(platform_handler *platform_handler, b8 value)
+void set_platform_running(PlatformHandler *platform_handler, b8 value)
 {
 	platform_handler->running = value;	
 }

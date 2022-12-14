@@ -4,7 +4,7 @@
 
 int main()
 {
-	platform_handler plat;
+	PlatformHandler plat;
 
 	if(!window_startup(
 			&plat,
