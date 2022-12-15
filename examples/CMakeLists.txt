@@ -9,12 +9,12 @@ if(CMAKE_COMPILER_IS_GNUCXX)
 		-Wundef -Werror -Wno-unused)
 endif()
 
-add_executable(lal gl_xlib_window.c)
+add_executable(lal gl_xcb_window.c)
 
 target_include_directories(lal
     PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}/../include) 
 
 if(UNIX)
-	target_link_libraries(lal lal_platform -lX11 -lGL)
+	target_link_libraries(lal lal_platform -lX11 -lGL -lX11-xcb -lxcb)
 endif()

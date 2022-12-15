@@ -12,7 +12,12 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
+#include <X11/Xlib-xcb.h>
+#include <X11/XKBlib.h>
+
+#define GLX_GLXEXT_PROTOTYPES
 #include <GL/glx.h>
+#include <GL/glxext.h>
 
 typedef GLXContext (*glXCreateContextAttribsARBProc)(Display*, GLXFBConfig, GLXContext, Bool, const int*);
 
@@ -34,6 +39,23 @@ typedef struct WindowX11GL
     GLXContext context;
     XWindowAttributes window_attribs;
 } WindowX11GL;
+
+typedef struct WindowXCBGL
+{
+	Display *display;
+    ulong32 x11_id;
+    sint32 screen_id;
+	uint32 xcb_id;
+    xcb_connection_t *xcb_connection;
+    xcb_screen_t *xcb_screen;
+    uint32 delete_msg;
+	uint32 wm_protocols;
+    XWindowAttributes window_attribs;
+    GLXContext context;
+    ulong32 glx_id;
+    uint32 xcb_colormap;
+    GLXFBConfig glx_fb_config;
+} WindowXCBGL;
 
 Keys translate_keycode(uint32 key);
 b8 isExtensionSupported(const char *extList, const char *extension);
@@ -291,6 +313,179 @@ b8 create_gl_xlib_window(
     return TRUE;
 }
 
+
+b8 create_xcb_window(
+	PlatformHandler *platform_handler,
+	const char* window_title,
+	uint32 x,
+	uint32 y,
+	uint32 width,
+	uint32 height)
+{
+    platform_handler->window = malloc(sizeof(WindowX11GL));
+    WindowXCBGL *window = (WindowXCBGL *)platform_handler->window;
+
+    // Open Display
+    window->display = XOpenDisplay(NULL);
+    if(window->display == NULL)
+    {
+        printf("ERROR: Failed to open display.\n");
+        return FALSE;
+    }
+    
+    // Setup Screen id
+    window->screen_id = DefaultScreen(window->display);
+
+    // Setup Event queue
+    XSetEventQueueOwner(window->display, XCBOwnsEventQueue);
+
+    // Setup connection
+    window->xcb_connection = XGetXCBConnection(window->display);
+
+    // Get XCB Screen
+    window->xcb_screen = NULL;
+
+    // Get data from the X server
+    const struct xcb_setup_t* setup = xcb_get_setup(window->xcb_connection);
+
+    // Loop through screens using an iterator
+    xcb_screen_iterator_t it = xcb_setup_roots_iterator(setup);
+    sint32 screen_p = 0;
+    for (sint32 s = screen_p; s > 0; s--)
+        xcb_screen_next(&it);
+
+    // Set screen
+    window->xcb_screen = it.data;
+    if(window->xcb_screen == NULL)
+    {
+        printf("ERROR: Failed to get XCB Screen.\n");
+        return FALSE;
+    }
+
+    // Setup GLX config attributes
+    int glx_fb_config_attribs[] = {
+        GLX_BUFFER_SIZE,   16,      // TODO: Check if sizes are the same
+        GLX_DOUBLEBUFFER,  0,
+        GLX_SAMPLES,       0,
+        GLX_X_VISUAL_TYPE, GLX_TRUE_COLOR,
+        0,
+    };
+
+    // Get FB Config
+    sint32 glx_nfb_configs;
+    GLXFBConfig* glx_fb_configs = glXChooseFBConfig(window->display, window->x11_id, glx_fb_config_attribs, &glx_nfb_configs);
+    if(glx_nfb_configs == NULL)
+    {
+        printf("ERROR: Failed to choose FB config.\n");
+        return FALSE;
+    }
+
+    // Set FB config
+    window->glx_fb_config  = glx_fb_configs[0];
+    XFree(glx_fb_configs);
+
+    // Get FB Config attributes
+    sint32 glx_visual_id; 
+    //glXGetFBConfigAttrib(window->display, window->glx_fb_config, GLX_VISUAL_ID, &window->xcb_screen->root_visual);
+    glXGetFBConfigAttrib(window->display, window->glx_fb_config, GLX_VISUAL_ID, &glx_visual_id);
+
+
+    window->xcb_colormap = xcb_generate_id(window->xcb_connection);
+    //xcb_create_colormap(window->xcb_connection, XCB_COLORMAP_ALLOC_NONE, window->xcb_colormap, window->xcb_screen->root, window->xcb_screen->root_visual);
+    xcb_create_colormap(window->xcb_connection, XCB_COLORMAP_ALLOC_NONE, window->xcb_colormap, window->xcb_screen->root, glx_visual_id);
+    
+    // Setup events for window
+    uint32 value_mask = XCB_CW_BACK_PIXMAP | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP;
+    uint32 value_list[] = {XCB_BACK_PIXMAP_NONE, XCB_EVENT_MASK_KEY_PRESS | XCB_EVENT_MASK_KEY_RELEASE
+        | XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE| XCB_EVENT_MASK_POINTER_MOTION 
+        | XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_STRUCTURE_NOTIFY, window->xcb_colormap};
+
+    // Crate XCB ID for window
+    window->xcb_id = xcb_generate_id(window->xcb_connection);
+
+    xcb_create_window(
+        window->xcb_connection, 
+        window->xcb_screen->root_depth, 
+        window->xcb_id, 
+        window->xcb_screen->root,
+        0,
+        0,
+        width,                              //window->xcb_screen->width_in_pixels, 
+        height,                             //window->xcb_screen->height_in_pixels, 
+        0,
+        XCB_WINDOW_CLASS_INPUT_OUTPUT,
+        glx_visual_id,
+        value_mask,
+        value_list);
+
+    // Map window
+    xcb_map_window(window->xcb_connection, window->xcb_id);
+
+    // Setup OpenGL configs
+    sint32 glx_context_attribs[] = {
+        GLX_CONTEXT_MAJOR_VERSION_ARB,   4,
+        GLX_CONTEXT_MINOR_VERSION_ARB,   6,
+        GLX_CONTEXT_FLAGS_ARB,           GLX_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB,
+        GLX_CONTEXT_PROFILE_MASK_ARB,    GLX_CONTEXT_CORE_PROFILE_BIT_ARB,
+        GLX_CONTEXT_OPENGL_NO_ERROR_ARB, 1,
+        0,
+    };
+
+    window->glx_id = glXCreateWindow(window->display, window->glx_fb_config, window->xcb_id, NULL);
+    window->context =  glXCreateContextAttribsARB(window->display, window->glx_fb_config, NULL, 1, glx_context_attribs);
+
+    // Setup Window properties
+    xcb_change_property(
+        window->xcb_connection,
+        XCB_PROP_MODE_REPLACE,
+        window->xcb_id,
+        XCB_ATOM_WM_NAME,
+        XCB_ATOM_STRING,
+        8,                      // data should be viewed 8 bits at a time, TODO: Check if sizes are the same
+        strlen(window_title),
+        window_title);
+
+    // Setup messages for window
+    xcb_intern_atom_cookie_t wm_delete_cookie = xcb_intern_atom(
+        window->xcb_connection,
+        0,
+        strlen("WM_DELETE_WINDOW"),
+        "WM_DELETE_WINDOW");
+
+    xcb_intern_atom_cookie_t wm_protocols_cookie = xcb_intern_atom(
+        window->xcb_connection,
+        0,
+        strlen("WM_PROTOCOLS"),
+        "WM_PROTOCOLS");
+
+    xcb_intern_atom_reply_t *wm_delete_reply = xcb_intern_atom_reply(
+        window->xcb_connection,
+        wm_delete_cookie,
+        NULL);
+
+    xcb_intern_atom_reply_t *wm_protocols_reply = xcb_intern_atom_reply(
+        window->xcb_connection,
+        wm_protocols_cookie,
+        NULL);
+
+    // Setup window delete message
+    window->delete_msg = wm_delete_reply->atom;
+    window->wm_protocols = wm_protocols_reply->atom;
+
+    //xcb_map_window(window->xcb_connection, window->xcb_id);
+
+    // Disable key repeat
+    XAutoRepeatOff(window->display);
+
+    // Initialize Input system
+    input_initialize();
+    
+    // Make context current
+    glXMakeContextCurrent(window->display, window->glx_id, window->glx_id, window->context);
+
+    return TRUE;
+}
+
 void run_gl_xlib_window(PlatformHandler *platform_handler)
 {
 	WindowX11GL *window = (WindowX11GL *)platform_handler->window;
@@ -323,6 +518,29 @@ void run_gl_xlib_window(PlatformHandler *platform_handler)
     XConfigureWindow(window->display, window->id, change_values, &values);
 
     platform_handler->running = TRUE;
+}
+
+void run_xcb_window(PlatformHandler *platform_handler)
+{
+    WindowXCBGL *window = (WindowXCBGL *)platform_handler->window;
+
+    platform_handler->running = TRUE;
+}
+
+void shutdown_xcb_window(PlatformHandler *platform_handler)
+{
+    WindowXCBGL *window = (WindowXCBGL *)platform_handler->window;
+
+    // Enable key repeat
+	XAutoRepeatOn(window->display);
+
+    xcb_destroy_window(window->xcb_connection, window->xcb_id);
+    xcb_free_colormap(window->xcb_connection, window->xcb_colormap);
+
+    glXDestroyWindow(window->display,  window->glx_id);
+    glXDestroyContext(window->display, window->context);
+
+    XCloseDisplay(window->display);
 }
 
 void shutdown_simple_window(PlatformHandler *platform_handler)
@@ -399,6 +617,58 @@ void process_gl_xlib_events(PlatformHandler *platform_handler)
 		default:
 			break;
 	}
+}
+
+void process_xcb_events(PlatformHandler *platform_handler)
+{
+    WindowXCBGL *window = (WindowXCBGL *)platform_handler->window;
+
+    // Variables to handle event
+    xcb_generic_event_t *event = xcb_poll_for_event(window->xcb_connection);
+    xcb_client_message_event_t *client_msg;
+
+    // Variables to handle key press translation
+    xcb_key_press_event_t *kb_event;
+    xcb_keycode_t code;
+    KeySym keysym = 0;
+
+    // Variables to handle key press for LAL library
+	b8 pressed;
+	Keys key;
+
+    if(event != NULL)
+    {
+        switch(event->response_type & ~0x80)
+        {
+            printf("Teste aqui2.\n");
+            case XCB_CLIENT_MESSAGE:
+                client_msg = (xcb_client_message_event_t *)event;
+                if(client_msg->data.data32[0] == window->delete_msg)
+                    platform_handler->running = FALSE;
+                break;
+            case XCB_KEY_PRESS:
+            case XCB_KEY_RELEASE:
+                kb_event = (xcb_key_press_event_t*)event;
+                pressed = event->response_type == XCB_KEY_PRESS;
+                code = kb_event->detail;
+                keysym = XkbKeycodeToKeysym(window->display, (KeyCode)code, 0, 0);
+                key = translate_keycode(keysym);
+                input_process_key(key, pressed);
+                input_update();
+                break;
+            case Expose:
+                //XGetWindowAttributes(window->display, window->x11_id, &window->window_attribs);
+                glClearColor(0.3f, 0.9f, 0.5f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT);
+                glXSwapBuffers(window->display, window->glx_id);
+                break;
+            default:
+                break;
+        }
+    }
+
+    free(event);
+    //printf("Deleted event.\n");
 }
 
 void process_simple_window_events(PlatformHandler *platform_handler)
