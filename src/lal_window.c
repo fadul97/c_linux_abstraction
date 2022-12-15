@@ -6,10 +6,15 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <X11/X.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+
+#include <GL/glx.h>
+
+typedef GLXContext (*glXCreateContextAttribsARBProc)(Display*, GLXFBConfig, GLXContext, Bool, const int*);
 
 typedef struct WindowX11
 {
@@ -19,11 +24,22 @@ typedef struct WindowX11
 	ulong32 delete_msg;
 } WindowX11;
 
-Keys translate_keycode(uint32 key);
+typedef struct WindowX11GL
+{
+	Display *display;
+	ulong32 id;
+	Screen *screen;
+    sint32 screen_id;
+	ulong32 delete_msg;
+    GLXContext context;
+    XWindowAttributes window_attribs;
+} WindowX11GL;
 
-b8 window_startup(
+Keys translate_keycode(uint32 key);
+b8 isExtensionSupported(const char *extList, const char *extension);
+
+b8 create_simple_window(
 		PlatformHandler *platform_handler,
-		const char* window_title,
 		uint32 x,
 		uint32 y,
 		uint32 width,
@@ -78,7 +94,238 @@ b8 window_startup(
 	return TRUE;
 }
 
-void window_shutdown(PlatformHandler *platform_handler)
+b8 create_gl_xlib_window(
+		PlatformHandler *platform_handler,
+		const char* window_title,
+		uint32 x,
+		uint32 y,
+		uint32 width,
+		uint32 height)
+{
+    platform_handler->window = malloc(sizeof(WindowX11GL));
+    WindowX11GL *window = (WindowX11GL *)platform_handler->window;
+
+    // Open Display
+    window->display = XOpenDisplay(NULL);
+    if(window->display == NULL)
+    {
+        printf("ERROR: Failed to open display.\n");
+        return FALSE;
+    }
+
+    // Initialize Screen
+    window->screen = DefaultScreenOfDisplay(window->display);
+    window->screen_id = DefaultScreen(window->display);
+    
+    printf("Finding GL versions...\n");
+    sint32 major_version = 0;
+    sint32 minor_version = 0;
+
+    // Get GL versions
+    glXQueryVersion(window->display, &major_version, &minor_version);
+    if(major_version <= 1 && minor_version < 2)
+    {
+        printf("ERROR: GLX 1.2 or greater is required.\n");
+        XCloseDisplay(window->display);
+        return FALSE;
+    }
+
+    printf("GLX version: %d.%d\n", major_version, minor_version);
+
+    sint32 glx_attribs[] = {
+        GLX_X_RENDERABLE,   True,
+		GLX_DRAWABLE_TYPE,  GLX_WINDOW_BIT,
+		GLX_RENDER_TYPE,    GLX_RGBA_BIT,
+		GLX_X_VISUAL_TYPE,  GLX_TRUE_COLOR,
+		GLX_RED_SIZE,       8,
+		GLX_GREEN_SIZE,     8,
+		GLX_BLUE_SIZE,      8,
+		GLX_ALPHA_SIZE,     8,
+		GLX_DEPTH_SIZE,     24,
+		GLX_STENCIL_SIZE,   8,
+		GLX_DOUBLEBUFFER,   True,
+		None
+    };
+
+    // Get framebuffer info
+    sint32 fb_count;
+    GLXFBConfig *fbc = glXChooseFBConfig(window->display, window->screen_id, glx_attribs, &fb_count);
+    if(fbc == NULL)
+    {
+        printf("ERROR: Failed to retrieve framebuffer.\n");
+        XCloseDisplay(window->display);
+        return FALSE;
+    }
+    
+    printf("Getting best XVisualInfo.\n");
+    sint32 best_fbc = -1;
+    sint32 worst_fbc = -1;
+    sint32 best_num_samples = -1;
+    sint32 worst_num_samples = 999;
+    for(int i = 0; i < fb_count; i++)
+    {
+		XVisualInfo *temp_vi = glXGetVisualFromFBConfig(window->display, fbc[i]);
+		if(temp_vi != 0)
+        {
+			int samples_buf;
+            int samples;
+
+            glXGetFBConfigAttrib(window->display, fbc[i], GLX_SAMPLE_BUFFERS, &samples_buf);
+			glXGetFBConfigAttrib(window->display, fbc[i], GLX_SAMPLES       , &samples);
+
+			if(best_fbc < 0 || (samples_buf && samples > best_num_samples))
+            {
+				best_fbc = i;
+				best_num_samples = samples;
+			}
+
+			if(worst_fbc < 0 || !samples_buf || samples < worst_num_samples)
+				worst_fbc = i;
+
+			worst_num_samples = samples;
+		}
+
+		XFree(temp_vi);
+	}
+
+    printf("Best visual info index: %d\n", best_fbc);
+    GLXFBConfig glx_fb_config = fbc[best_fbc];
+    XFree(fbc);
+    printf("Context initialized.\n");
+
+    // Get visual from FB config
+    XVisualInfo *visual = glXGetVisualFromFBConfig(window->display, glx_fb_config);
+    if(visual == NULL)
+    {
+        printf("ERROR: Failed to get visual from FB config.\n");
+        XCloseDisplay(window->display);
+        return FALSE;
+    }
+
+    if(window->screen_id != visual->screen)
+    {
+        printf("ERROR: screen_id(%d) does not match visual->screen(%d)\n", window->screen_id, visual->screen);
+        XCloseDisplay(window->display);
+        return FALSE;
+    }
+
+    // Set window attributes - color, pixel, etc.
+    XSetWindowAttributes window_attribs;
+    window_attribs.border_pixel = BlackPixel(window->display, window->screen_id);
+    window_attribs.background_pixel = WhitePixel(window->display, window->screen_id);
+    window_attribs.override_redirect = TRUE;
+    window_attribs.colormap = XCreateColormap(window->display, 
+            RootWindow(window->display, window->screen_id), visual->visual, AllocNone);
+    window_attribs.event_mask = ExposureMask;
+
+    // Create window
+    window->id = XCreateWindow(
+        window->display,
+        RootWindow(window->display, window->screen_id),
+        0,
+        0,
+        width,
+        height, 
+        0,
+        visual->depth,
+        InputOutput,
+        visual->visual,
+        CWBackPixel | CWColormap | CWBorderPixel | CWEventMask,
+        &window_attribs);
+
+    if(window->id == 0)
+    {
+        printf("ERROR: Failed to create window.\n");
+        XCloseDisplay(window->display);
+        return FALSE;
+    }
+
+    // Setup window delete message
+    window->delete_msg = XInternAtom(window->display, "WM_DELETE_WINDOW", FALSE);
+    XSetWMProtocols(window->display, window->id, &window->delete_msg, 1);
+
+    // Disable key repeat
+    XAutoRepeatOff(window->display);
+
+    // Initialize Input system
+    input_initialize();
+    
+    printf("Window created.\n");
+
+    // Create GLX OpenGL Context
+    glXCreateContextAttribsARBProc glXCreateContextAttribsARB = 0;
+	glXCreateContextAttribsARB = (glXCreateContextAttribsARBProc) glXGetProcAddressARB((const GLubyte *) "glXCreateContextAttribsARB");
+    
+    const char *glx_extensions = glXQueryExtensionsString(window->display, window->screen_id);
+
+    sint32 context_attributes[] = {
+        GLX_CONTEXT_MAJOR_VERSION_ARB, 3,
+		GLX_CONTEXT_MINOR_VERSION_ARB, 2,
+		GLX_CONTEXT_FLAGS_ARB, GLX_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB,
+		None
+    };
+
+
+    window->context = 0;
+    if(!isExtensionSupported(glx_extensions, "GLX_ARB_create_context"))
+	    window->context = glXCreateNewContext(window->display, glx_fb_config, GLX_RGBA_TYPE, 0, TRUE);
+	else
+	    window->context = glXCreateContextAttribsARB(window->display, glx_fb_config, 0, TRUE, context_attributes);
+    
+    XSync(window->display, FALSE);
+
+    // Verify that context is a direct context
+    if(!glXIsDirect(window->display, window->context))
+        printf("Indirect GLX rendering context obtained.\n");
+    else
+        printf("Direct GLX rendering context obtained.\n");
+
+    // Setup window context
+    glXMakeCurrent(window->display, window->id, window->context);
+    
+    printf("GL Vendor: %s\n", glGetString(GL_VENDOR));
+    printf("GL Renderer: %s\n", glGetString(GL_RENDERER));
+    printf("GL Version: %s\n", glGetString(GL_VERSION));
+    printf("GL Shading Language: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
+        
+    return TRUE;
+}
+
+void run_gl_xlib_window(PlatformHandler *platform_handler)
+{
+	WindowX11GL *window = (WindowX11GL *)platform_handler->window;
+    
+    // Setup Input
+    XSelectInput(window->display, window->id, KeyPressMask | KeyReleaseMask 
+            | KeymapStateMask   | PointerMotionMask     | ButtonPressMask 
+            | ButtonReleaseMask | EnterWindowMask       | LeaveWindowMask
+            | ExposureMask      | StructureNotifyMask   | ButtonPressMask
+            | ButtonReleaseMask);
+
+    // Name window
+    XStoreName(window->display, window->id, "OpenGL Window Test");
+
+    // Show window
+    XClearWindow(window->display, window->id);
+    XMapRaised(window->display, window->id);
+
+    // Print window attributes
+    window->window_attribs;
+    XGetWindowAttributes(window->display, window->id, &window->window_attribs);
+    printf("Window Info:\n");
+    printf("\t%dx%d\n", window->window_attribs.width, window->window_attribs.height);
+
+    // Resize window
+    uint32 change_values = CWWidth | CWHeight;
+    XWindowChanges values;
+    values.width = 800;
+    values.height = 600;
+    XConfigureWindow(window->display, window->id, change_values, &values);
+
+    platform_handler->running = TRUE;
+}
+
+void shutdown_simple_window(PlatformHandler *platform_handler)
 {
 	WindowX11 *window = (WindowX11 *)platform_handler->window;
 	
@@ -88,17 +335,76 @@ void window_shutdown(PlatformHandler *platform_handler)
 	XCloseDisplay(window->display);
 	
 	if(platform_handler->window != NULL)
-	{
 		free(window);
-		printf("Window pointer deleted.\n");
+}
+
+void shutdown_gl_xlib_window(PlatformHandler *platform_handler)
+{
+    WindowX11GL *window = (WindowX11GL *)platform_handler->window;
+
+    // Enable key repeat
+    XAutoRepeatOn(window->display);
+
+    glXDestroyContext(window->display, window->context);
+    glXDestroyWindow(window->display, window->id);
+    
+    if(platform_handler->window != NULL)
+        free(window);
+}
+
+void process_gl_xlib_events(PlatformHandler *platform_handler)
+{
+	WindowX11GL *window = (WindowX11GL *)platform_handler->window;
+	
+	// Variable to read events
+	XEvent event;
+
+	// Variables to hold info about key pressed
+	int len;
+	char str[25] = {0};
+	KeySym keysym = 0;
+	slong32 msg;
+
+	// Window loop
+	b8 pressed;
+	Keys key;
+	
+	// For key repeat detection
+	XEvent next_event;
+    
+	XNextEvent(window->display, &event);
+
+	switch(event.type)
+	{
+		case ClientMessage:
+			msg = (long)window->delete_msg;
+			if(event.xclient.data.l[0] == msg)
+				platform_handler->running = FALSE;
+			break;
+		case KeyPress:
+		case KeyRelease:
+			len = XLookupString(&event.xkey, str, 25, &keysym, NULL);
+			pressed = event.type == KeyPress;
+			key = translate_keycode(keysym);
+			input_process_key(key, pressed);
+			input_update();
+			break;
+        case Expose:
+            XGetWindowAttributes(window->display, window->id, &window->window_attribs);
+            glViewport(0, 0, window->window_attribs.width, window->window_attribs.height);
+            glClearColor(0.8f, 0.5f, 0.5f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glXSwapBuffers(window->display, window->id);
+            break;
+		default:
+			break;
 	}
 }
 
-void process_events(PlatformHandler *platform_handler)
+void process_simple_window_events(PlatformHandler *platform_handler)
 {
 	WindowX11 *window = (WindowX11 *)platform_handler->window;
 
-	
 	// Variable to read events
 	XEvent event;
 
@@ -145,6 +451,40 @@ b8 is_platform_running(PlatformHandler *platform_handler)
 void set_platform_running(PlatformHandler *platform_handler, b8 value)
 {
 	platform_handler->running = value;	
+}
+
+b8 isExtensionSupported(const char *extList, const char *extension)
+{
+	const char *start;
+	const char *where, *terminator;
+
+	/* Extension names should not have spaces. */
+	where = strchr(extension, ' ');
+	if (where || *extension == '\0')
+	    return FALSE;
+
+	/* It takes a bit of care to be fool-proof about parsing the
+	 OpenGL extensions string. Don't be fooled by sub-strings,
+	 etc. */
+	for(start=extList;;)
+    {
+	    where = strstr(start, extension);
+
+	    if (!where)
+	 	    break;
+
+        terminator = where + strlen(extension);
+
+        if( where == start || *(where - 1) == ' ' )
+        {
+            if ( *terminator == ' ' || *terminator == '\0' )
+                return TRUE;
+        }
+
+        start = terminator;
+	}
+
+	return FALSE;
 }
 
 Keys translate_keycode(uint32 x_keycode) {

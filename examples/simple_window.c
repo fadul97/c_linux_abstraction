@@ -6,9 +6,8 @@ int main()
 {
 	PlatformHandler plat;
 
-	if(!window_startup(
+	if(!create_simple_window(
 			&plat,
-			"Testing Window",
 			0,
 			0,
 			800,
@@ -17,18 +16,13 @@ int main()
 
 	while(is_platform_running(&plat))
 	{
-		process_events(&plat);		
+		process_simple_window_events(&plat);		
 
 		if(is_key_down(KEY_ESCAPE))
-		{
-			printf("ESC Key pressed.\n");
 			set_platform_running(&plat, FALSE);
-		}
-		
-		printf("Loop.\n");
 	}
 
-	window_shutdown(&plat);
+	shutdown_simple_window(&plat);
 
 	return 0;
 }
