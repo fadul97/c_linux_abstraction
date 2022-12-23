@@ -1,19 +1,20 @@
 #include "lal/lal_window.h"
 #include "lal/lal_input.h"
+#include "lal_error_list.h"
 #include <stdio.h>
 
 int main()
 {
 	PlatformHandler plat;
 
-    if(!create_gl_xlib_window(
+    if(create_gl_xlib_window(
         &plat,
         "OpenGL Window",
         0,
         0,
         800,
-        600))
-        return -1;
+        600) != OK)
+        return WINDOW_ERROR;
 
     run_gl_xlib_window(&plat);
     

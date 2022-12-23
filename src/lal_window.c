@@ -1,4 +1,5 @@
 #include "lal_defines.h"
+#include "lal_error_list.h"
 #include "lal/lal_window.h"
 #include "lal/lal_input.h"
 
@@ -76,7 +77,7 @@ b8 create_simple_window(
 	if(window->display == NULL)
 	{
 		printf("ERROR: Failed to open display.\n");
-		return 1;
+		return WINDOW_ERROR;
 	}
 
 	// Setup window config
@@ -113,7 +114,7 @@ b8 create_simple_window(
 	// Set running to false
 	platform_handler->running = TRUE;
 
-	return TRUE;
+	return OK;
 }
 
 b8 create_gl_xlib_window(
@@ -132,7 +133,7 @@ b8 create_gl_xlib_window(
     if(window->display == NULL)
     {
         printf("ERROR: Failed to open display.\n");
-        return FALSE;
+        return WINDOW_ERROR;
     }
 
     // Initialize Screen
@@ -149,7 +150,7 @@ b8 create_gl_xlib_window(
     {
         printf("ERROR: GLX 1.2 or greater is required.\n");
         XCloseDisplay(window->display);
-        return FALSE;
+        return CONTEXT_ERROR;
     }
 
     printf("GLX version: %d.%d\n", major_version, minor_version);
@@ -176,7 +177,7 @@ b8 create_gl_xlib_window(
     {
         printf("ERROR: Failed to retrieve framebuffer.\n");
         XCloseDisplay(window->display);
-        return FALSE;
+        return CONTEXT_ERROR;
     }
     
     printf("Getting best XVisualInfo.\n");
@@ -221,14 +222,14 @@ b8 create_gl_xlib_window(
     {
         printf("ERROR: Failed to get visual from FB config.\n");
         XCloseDisplay(window->display);
-        return FALSE;
+        return CONTEXT_ERROR;
     }
 
     if(window->screen_id != visual->screen)
     {
         printf("ERROR: screen_id(%d) does not match visual->screen(%d)\n", window->screen_id, visual->screen);
         XCloseDisplay(window->display);
-        return FALSE;
+        return CONTEXT_ERROR;
     }
 
     // Set window attributes - color, pixel, etc.
@@ -259,7 +260,7 @@ b8 create_gl_xlib_window(
     {
         printf("ERROR: Failed to create window.\n");
         XCloseDisplay(window->display);
-        return FALSE;
+        return WINDOW_ERROR;
     }
 
     // Setup window delete message
@@ -310,7 +311,7 @@ b8 create_gl_xlib_window(
     printf("GL Version: %s\n", glGetString(GL_VERSION));
     printf("GL Shading Language: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
         
-    return TRUE;
+    return OK;
 }
 
 
@@ -331,7 +332,7 @@ b8 create_xcb_window(
     if(window->display == NULL)
     {
         printf("ERROR: Failed to open display.\n");
-        return FALSE;
+        return WINDOW_ERROR;
     }
     
     // Setup Screen id
@@ -360,7 +361,7 @@ b8 create_xcb_window(
     if(window->xcb_screen == NULL)
     {
         printf("ERROR: Failed to get XCB Screen.\n");
-        return FALSE;
+        return WINDOW_ERROR;
     }
 
     // Setup GLX config attributes
@@ -378,7 +379,7 @@ b8 create_xcb_window(
     if(glx_nfb_configs == NULL)
     {
         printf("ERROR: Failed to choose FB config.\n");
-        return FALSE;
+        return CONTEXT_ERROR;
     }
 
     // Set FB config
@@ -484,7 +485,7 @@ b8 create_xcb_window(
     // Make context current
     glXMakeContextCurrent(window->display, window->glx_id, window->glx_id, window->context);
 
-    return TRUE;
+    return OK;
 }
 
 void run_gl_xlib_window(PlatformHandler *platform_handler)
@@ -733,7 +734,7 @@ b8 isExtensionSupported(const char *extList, const char *extension)
 	/* Extension names should not have spaces. */
 	where = strchr(extension, ' ');
 	if (where || *extension == '\0')
-	    return FALSE;
+	    return CONTEXT_ERROR;
 
 	/* It takes a bit of care to be fool-proof about parsing the
 	 OpenGL extensions string. Don't be fooled by sub-strings,
@@ -750,13 +751,13 @@ b8 isExtensionSupported(const char *extList, const char *extension)
         if( where == start || *(where - 1) == ' ' )
         {
             if ( *terminator == ' ' || *terminator == '\0' )
-                return TRUE;
+                return OK;
         }
 
         start = terminator;
 	}
 
-	return FALSE;
+	return FAILED;
 }
 
 Keys translate_keycode(uint32 x_keycode) {

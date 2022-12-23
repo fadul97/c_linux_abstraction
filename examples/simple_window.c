@@ -1,18 +1,19 @@
 #include "lal/lal_window.h"
 #include "lal/lal_input.h"
+#include "lal_error_list.h"
 #include <stdio.h>
 
 int main()
 {
 	PlatformHandler plat;
 
-	if(!create_simple_window(
+	if(create_simple_window(
 			&plat,
 			0,
 			0,
 			800,
-			600))
-		return -1;
+			600) != OK)
+		return WINDOW_ERROR;
 
 	while(is_platform_running(&plat))
 	{

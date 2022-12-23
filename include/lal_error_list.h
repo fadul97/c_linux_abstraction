@@ -1,0 +1,12 @@
+#ifndef LAL_ERROR_LIST_H
+#define LAL_ERROR_LIST_H
+
+enum Error
+{
+	OK,
+	FAILED,
+	WINDOW_ERROR,
+	CONTEXT_ERROR
+};
+
+#endif // LAL_ERROR_LIST_H
