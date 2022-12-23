@@ -314,6 +314,7 @@ b8 create_gl_xlib_window(
 }
 
 
+// TODO: Add a better configuration for glx framebuffer in glx_fb_config_attribs
 b8 create_xcb_window(
 	PlatformHandler *platform_handler,
 	const char* window_title,
@@ -365,7 +366,7 @@ b8 create_xcb_window(
     // Setup GLX config attributes
     int glx_fb_config_attribs[] = {
         GLX_BUFFER_SIZE,   16,      // TODO: Check if sizes are the same
-        GLX_DOUBLEBUFFER,  0,
+        GLX_DOUBLEBUFFER,  TRUE,
         GLX_SAMPLES,       0,
         GLX_X_VISUAL_TYPE, GLX_TRUE_COLOR,
         0,
@@ -385,7 +386,7 @@ b8 create_xcb_window(
     XFree(glx_fb_configs);
 
     // Get FB Config attributes
-    sint32 glx_visual_id; 
+    sint32 glx_visual_id;
     //glXGetFBConfigAttrib(window->display, window->glx_fb_config, GLX_VISUAL_ID, &window->xcb_screen->root_visual);
     glXGetFBConfigAttrib(window->display, window->glx_fb_config, GLX_VISUAL_ID, &glx_visual_id);
 
@@ -527,6 +528,7 @@ void run_xcb_window(PlatformHandler *platform_handler)
     platform_handler->running = TRUE;
 }
 
+// TODO: Fix XCB window shutdown -> error in glXDestroyWindow
 void shutdown_xcb_window(PlatformHandler *platform_handler)
 {
     WindowXCBGL *window = (WindowXCBGL *)platform_handler->window;
@@ -619,6 +621,7 @@ void process_gl_xlib_events(PlatformHandler *platform_handler)
 	}
 }
 
+// TODO: Fix closing event when clicking on X button
 void process_xcb_events(PlatformHandler *platform_handler)
 {
     WindowXCBGL *window = (WindowXCBGL *)platform_handler->window;
@@ -640,7 +643,6 @@ void process_xcb_events(PlatformHandler *platform_handler)
     {
         switch(event->response_type & ~0x80)
         {
-            printf("Teste aqui2.\n");
             case XCB_CLIENT_MESSAGE:
                 client_msg = (xcb_client_message_event_t *)event;
                 if(client_msg->data.data32[0] == window->delete_msg)
